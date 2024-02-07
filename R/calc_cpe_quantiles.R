@@ -19,6 +19,7 @@ library(here)
 df_surveys <- read_rds(here("data", "df_trout_surveys.rds"))
 df_efforts <- read_rds(here("data", "df_trout_efforts.rds"))
 df_trout <- read_rds(here("data", "df_trout_data.rds"))
+
 # simplify columns a bit
 df_trout <- df_trout %>% 
   relocate(length_mm, .after = "length") %>% 
@@ -30,37 +31,40 @@ df_sites_va <- read_rds(here("data","sites_list_va.rds"))
 
 ## Assign age classes ========================================================
 
-#  - brook trout: <4" = age0, 4-6.9" = age1, >=7" = adult
-#  - brown trout: <4" = age0, 4-7.9" = age1, >=8" = adult
+# Roughly based off AFS benchmarks:
+
+# Brookies: <4 (YOY), 4-7 (yearling), GREATER than 7 (adults), then preferred is >=10, memorable >=15
+# Browns: <4 (YOY), 4-8(yearling), GREATER than  8 (adults), then preferred is >=12, memorable >=15
+
 
 # size classes
 df_trout <- df_trout %>% 
   mutate(
     size_class = case_when(
-      species=="brook_trout" & length < 4 ~ 'age0',
-      species=="brook_trout" & between(length, 4, 6.9) ~ 'age1',
-      species=="brook_trout" & length >= 7 ~ 'adult',
-      species=="brown_trout" & length < 4 ~ 'age0',
-      species=="brown_trout" & between(length, 4, 7.9) ~ 'age1',
-      species=="brown_trout" & length >= 8 ~ 'adult',
+      species=="brook_trout" & length < 4 ~ 'YOY',
+      species=="brook_trout" & between(length, 4, 7) ~ 'Yearling',
+      species=="brook_trout" & length > 7 ~ 'Adult',
+      species=="brown_trout" & length < 4 ~ 'YOY',
+      species=="brown_trout" & between(length, 4, 8) ~ 'Yearling',
+      species=="brown_trout" & length > 8 ~ 'Adult',
+      TRUE ~ NA_character_
+      ), 
+    prefered = case_when(
+      species=="brook_trout" & length >= 10 ~ 'Preferred',
+      species=="brown_trout" & length >= 12 ~ 'Preferred',
+      TRUE ~ NA_character_
+      ), 
+    memorable = case_when(
+      species=="brook_trout" & length >= 15 ~ 'Memorable',
+      species=="brown_trout" & length >= 15 ~ 'Memorable',
       TRUE ~ NA_character_
       )
     ) 
 
-# add trophy identifier
-df_trout <- df_trout %>% 
-  mutate(
-    size_trophy = case_when(
-      species=="brook_trout" & length >= 10 ~ 'pref',
-      species=="brown_trout" & length >= 12 ~ 'pref',
-      TRUE ~ NA_character_
-      )
-    ) 
 
-# Remove NAs  (cases where we didn't have length data, ~ 2% of fish)
+# Remove NAs (cases where we didn't have length data, ~ 2% of fish)
 map(df_trout, ~sum(is.na(.)))
-df_trout <- df_trout %>% 
-  filter(! is.na(size_class))
+df_trout <- df_trout |> filter(! is.na(size_class))
 
 
 ## Calculate CPEs  =============================================
@@ -71,25 +75,34 @@ total_effort <- df_efforts %>%
   summarize(total_effort = sum(distance.shocked), .groups = "drop") 
 # total_effort <- df_efforts %>% select(visit.fish.seq.no, distance.shocked) # same thing
 
-# cpe statewide
-df_cpes_total <- df_trout %>% 
-  mutate(size_class = "total") %>%  
+# cpe all sizes
+cpes_all <- df_trout %>% 
+  mutate(size_class = "All fish") %>%  
   group_by(waterbody.name, survey.year, survey.seq.no, visit.fish.seq.no, species, size_class) %>% 
   summarize(total_catch = sum(number.of.fish), .groups = "drop")  %>% 
   left_join(total_effort, by =  c("visit.fish.seq.no")) %>% 
   mutate(cpe = total_catch / total_effort)
 
 # cpe by age classes
-df_cpes_grps <- df_trout %>% 
+cpes_age <- df_trout %>% 
   group_by(waterbody.name, survey.year, survey.seq.no, visit.fish.seq.no, species, size_class) %>% 
   summarize(total_catch = sum(number.of.fish), .groups = "drop") %>% 
   left_join(total_effort, by =  c("visit.fish.seq.no")) %>% 
   mutate(cpe = total_catch / total_effort)
 
-# cpe for trophy sized fish
-df_cpes_trophy <- df_trout %>% 
-  filter(size_trophy == "pref") %>% 
-  mutate(size_class = "pref") %>% 
+# cpe for prefered
+cpes_pref <- df_trout %>% 
+  filter(prefered == "Preferred") %>% 
+  mutate(size_class = "Preferred") %>% 
+  group_by(waterbody.name, survey.year, survey.seq.no, visit.fish.seq.no, species, size_class) %>% 
+  summarize(total_catch = sum(number.of.fish), .groups = "drop") %>% 
+  left_join(total_effort, by =  c("visit.fish.seq.no")) %>% 
+  mutate(cpe = total_catch / total_effort)
+
+# cpe for memorable
+cpes_mem <- df_trout %>% 
+  filter(memorable == "Memorable") %>% 
+  mutate(size_class = "Memorable") %>% 
   group_by(waterbody.name, survey.year, survey.seq.no, visit.fish.seq.no, species, size_class) %>% 
   summarize(total_catch = sum(number.of.fish), .groups = "drop") %>% 
   left_join(total_effort, by =  c("visit.fish.seq.no")) %>% 
@@ -97,8 +110,11 @@ df_cpes_trophy <- df_trout %>%
 
 # Combine into one tibble
 df_cpes <- 
-  bind_rows(df_cpes_total, df_cpes_grps, df_cpes_trophy) %>% 
-  mutate(size_class = factor(size_class, levels = c("total","age0","age1","adult","pref"))) %>% 
+  bind_rows(cpes_all, cpes_age, cpes_pref, cpes_mem) %>% 
+  mutate(
+    size_class = factor(
+      size_class, levels = c("All fish","YOY","Yearling","Adult","Preferred", "Memorable"))
+    ) %>% 
   arrange(species, visit.fish.seq.no, size_class)
 
 # Add back metatdata from surveys and efforts tibbles
@@ -117,11 +133,13 @@ df_cpes
 ## Link to xref'ed WHD site data ======================================================
 
 # this gets all the spatial info (ecoregion, HUCs, etc)
-df_cpes_va <- df_cpes %>% 
+df_cpes <- df_cpes %>% 
   mutate(site.seq.no=as.character(site.seq.no)) %>% 
   left_join(df_sites_va %>% select(-swims.station.id, -wbic, -latitude, -longitude), 
             by = "site.seq.no")
 
+# check it
+df_cpes
 
 ## Calculate Quantiles ===============================================================
 
@@ -145,20 +163,23 @@ get_quantiles <- function(data) {
 #   "fisheries_assessments_trout_rotation"
 #   )
 
-df_cpes_va_sub <- df_cpes_va %>%
+df_cpes_sub <- df_cpes %>%
   # filter(primary.survey.purpose %in% targs.survey.purpose.cpe) %>%
   filter(between(survey.year, 2012, 2021)) %>%
   filter(trout_class == "CLASS I") |> 
   mutate(ecoregion = factor(ecoregion))
 
+# check it 
+df_cpes_sub
+
 ### state-wide quantiles -------------------------------------------
 
-quants_wi <- df_cpes_va_sub %>% get_quantiles()
+quants_wi <- df_cpes_sub %>% get_quantiles()
 
 ### ecoregion quantiles ----------------------------------
 
 # split by ecoregion into list
-eco_list <- split(df_cpes_va_sub, df_cpes_va_sub$ecoregion)
+eco_list <- split(df_cpes_sub, df_cpes_sub$ecoregion)
 
 # get quants
 quants_eco <- map(eco_list, get_quantiles)
@@ -167,16 +188,20 @@ quants_eco <- map(eco_list, get_quantiles)
 ### summary tables ----------------------------------------------
 
 # function to make summary tables
+
+# test
+# quants_wi %>% 
+#   pivot_wider(id_cols = -n, names_from = size_class, values_from = cpe_quant) %>% 
+#   mutate(species = if_else(species=="brook_trout",'Brook Trout', 'Brown Trout')) %>% 
+#   mutate(across(where(is.numeric), round, 1))
+
+# function
 make_summary_tbls <- function(data) {
   out <- data %>% 
     pivot_wider(id_cols = -n, names_from = size_class, values_from = cpe_quant) %>% 
     mutate(species = if_else(species=="brook_trout",'Brook Trout', 'Brown Trout')) %>% 
-    mutate(across(where(is.numeric), round, 1)) %>% 
-    relocate(total, .before = total) %>% 
-    relocate(age0, .before  = age0) %>% 
-    relocate(age1, .before  = age1) %>% 
-    relocate(adult, .before = adult) %>% 
-    relocate(pref, .before  = pref)
+    mutate(across(where(is.numeric), round, 1))|> 
+    rename(Species = species, Quantile = quantile)
   out
 }
 
@@ -201,20 +226,22 @@ combo <- left_join(
   quants_wi |> select(-n),
   by=c("species","size_class","quantile")
   ) |> 
-  rename(cpe_dft = cpe_quant.x, cpe_wi = cpe_quant.y)
+  rename(Driftless = cpe_quant.x, Wisconsin = cpe_quant.y)
 
 # make it wide and recreate table
 wi_dft_tbl <- combo %>%
-  pivot_wider(names_from = size_class, values_from = c(cpe_wi, cpe_dft)) %>%
+  pivot_wider(names_from = size_class, values_from = c(Wisconsin, Driftless)) %>%
   mutate(species = if_else(species=="brook_trout",'Brook Trout', 'Brown Trout')) %>%
   mutate(across(where(is.numeric), round, 1)) %>%
-  relocate(cpe_dft_total, .before=cpe_wi_total) %>%
-  relocate(cpe_dft_age0, .before=cpe_wi_age0) %>%
-  relocate(cpe_dft_age1, .before=cpe_wi_age1) %>%
-  relocate(cpe_dft_adult, .before=cpe_wi_adult) %>%
-  relocate(cpe_dft_pref, .before=cpe_wi_pref)
+  relocate(`Driftless_All fish`, .before = `Wisconsin_All fish`) %>%
+  relocate(Driftless_YOY, .before = Wisconsin_YOY) %>%
+  relocate(Driftless_Yearling, .before = Wisconsin_Yearling) %>%
+  relocate(Driftless_Adult, .before = Wisconsin_Adult) %>%
+  relocate(Driftless_Preferred, .before = Wisconsin_Preferred) %>%
+  relocate(Driftless_Memorable, .before = Wisconsin_Memorable) |> 
+  rename(Species = species, Quantile = quantile)
 
-print(wi_dft_tbl)
+wi_dft_tbl
 
 # write to file
 write_csv(wi_dft_tbl, here("output","cpe_qunatiles_Statewide-and-Driftless.csv"))
