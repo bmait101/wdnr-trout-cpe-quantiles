@@ -192,7 +192,7 @@ str(quant_tbls, max.level = 1)
 # write to csv
 quant_tbls |> 
   names() |> 
-  walk(~ write_csv(quant_tbls[[.]], paste0("output/", ., ".csv")))
+  walk(~ write_csv(quant_tbls[[.]], paste0("output/cpe_qunatiles_", ., ".csv")))
 
 ### statewide / driftless table ----------------------------------
 
@@ -217,7 +217,6 @@ wi_dft_tbl <- combo %>%
 print(wi_dft_tbl)
 
 # write to file
-wi_dft_tbl %>%
-  write_csv(here("output","2feb24_trout_cpe_quants_WI-Dft.csv"))
+write_csv(wi_dft_tbl, here("output","cpe_qunatiles_Statewide-and-Driftless.csv"))
 
 
