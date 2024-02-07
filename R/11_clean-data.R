@@ -2,24 +2,31 @@
 # Bryan Maitland
 # 2020-09-10
 # 2022-03-30
+# Created: 2020-09-10
+# Updated: 2022-03-30
 
-# libraries
+# This script will clean and filter the raw FMDB data pulled in 10_pull-fish.R
+#   - filter data
+#   - QAQC fish data
+#   - subset out trout data
+#   - expand count data
+
+# Set up =======================================================================
+
 library(tidyverse)
 library(here)
+library(sf)
 
 # Load raw FMDB data ===========================================================
-
 # load if needed: all proofed data on wadable stream that targeted trout
 
-df_surveys_raw <- read_rds(here("data", "raw_fmdb_surveys_20210919.rds"))
+df_surveys_raw <- read_rds(here("data", "raw_fmdb_surveys_20220330.rds"))
 df_efforts_raw <- read_rds(here("data", "raw_fmdb_efforts_20210919.rds"))
 df_fish_raw <- read_rds(here("data", "raw_fmdb_fish_20210919.rds"))
 
-
 # Check coordinate data ========================================================
 
-library(sf)
-wi_poly <- wdnr.gis::wi_poly %>% st_transform(crs = 3071)
+# wi_poly <- wdnr.gis::wi_poly %>% st_transform(crs = 3071)
 
 # # plot sites
 # tmp_pts <- df_surveys_raw %>%
@@ -45,28 +52,24 @@ wi_poly <- wdnr.gis::wi_poly %>% st_transform(crs = 3071)
 df_surveys <- df_surveys_raw %>% 
   mutate(longitude = if_else(site.seq.no==51873965,-90.59000,longitude))
 
-
-
 # Filter efforts  ==============================================================
 
-### Summer samples with effort data, 1st pass only
-
-## New tibble, and add Julian date
+# Add Julian date and make it a tbl
 df_efforts <- df_efforts_raw %>% 
-  mutate(julian = lubridate::yday(sample.date)) %>% 
-  as_tibble()
+  as_tibble() %>%
+  mutate(julian = lubridate::yday(sample.date))
 
-## Remove samples taken outside of the summer period
+# Remove samples taken outside of the summer period
 df_efforts <- filter(df_efforts, julian >= 166 & julian <= 258) 
 # 4,063 removed
 
-## Remove samples with distance NA or lower than 100m
+# Remove samples with distance NA or lower than 100m
 df_efforts <- df_efforts %>% 
   filter(!is.na(distance.shocked)) %>% 
   filter(distance.shocked >= 0.0621)
 # 1,267 removed
 
-## Keep surveys types for which cpes can be calculated
+# Keep surveys types for which cpes can be calculated
 df_efforts <- df_efforts %>% 
   filter(primary.survey.type %in% c("cpe","spe","dpe","mpe")) 
 # 424 removed
@@ -75,19 +78,16 @@ df_efforts <- df_efforts %>%
 df_efforts %>% count(run.number)
 
 df_efforts <- df_efforts %>% 
-  replace_na(list(run.number = 1)) %>%
+  replace_na(list(run.number = "1")) %>%
   mutate(run.number = if_else(run.number == "0", "1", run.number)) %>%
-  filter(run.number %in% c(1)) 
+  filter(run.number %in% c("1")) 
 # 303 removed
 
 
 ## Filter fish data on clean efforts ===========================================
 
-df_surveys <- df_surveys %>% 
-  semi_join(df_efforts, by = "survey.seq.no")
-
-df_fish <- df_fish_raw %>% 
-  semi_join(df_efforts, by = "visit.fish.seq.no")
+df_surveys <- df_surveys %>% semi_join(df_efforts, by = "survey.seq.no")
+df_fish <- df_fish_raw %>% semi_join(df_efforts, by = "visit.fish.seq.no")
 
 # check fish data has effort and surveys data
 # anti_join(df_fish, df_efforts, by = "visit.fish.seq.no") %>%
@@ -121,7 +121,7 @@ filter(df_fish, number.of.fish == 0) %>% count(species)
 # caught (and other species caught), we add zeros
 
 
-# Zeros 1: efforts were no fish were caught-------------------------------------
+## Zeros 1: efforts were no fish were caught-------------------------------------
 
 # deal with efforts where no fish species was caught
 # depending on the surveys target species, these records should be 
@@ -224,7 +224,7 @@ filter(df_fish, number.of.fish == 0) %>% count(species)
 # distinct(survey.seq.no)
 
 
-# Zeros 2: targeted a species, not caught, and no record of zero ---------------
+## Zeros 2: targeted a species, not caught, and no record of zero ---------------
 
 # targeted brookies, didnt catch no fish or brookies (so caught bnt)
 # df_trout %>%
@@ -252,7 +252,7 @@ df_trout <- df_fish %>%
   filter(species %in% c("brook_trout","brown_trout"))
 
 
-# keep all surveys with a match in the trout data ==============================
+# keep all surveys with a match in the trout data
 
 # (i.e., surveys where trout were caught)
 df_surveys <- semi_join(df_surveys, df_trout, by = "survey.seq.no")
@@ -260,7 +260,7 @@ df_efforts <- semi_join(df_efforts, df_trout, by = "visit.fish.seq.no")
 df_fish <- semi_join(df_fish, df_trout, by = "visit.fish.seq.no")
 
 
-## Expand trout counts =========================================================
+# Expand trout counts =========================================================
 
 df_trout <- df_trout %>% 
   wdnr.fmdb::expand_counts() %>% 
@@ -273,7 +273,7 @@ df_trout <- df_trout %>%
 # Save =========================================================================
 
 saveRDS(df_trout, here("output", "data", "df_trout.rds"))
-saveRDS(df_fish, here("output", "data", "df_trout_all_fish.rds"))
+# saveRDS(df_fish, here("output", "data", "df_trout_all_fish.rds"))
 saveRDS(df_efforts, here("output", "data", "df_efforts.rds"))
 saveRDS(df_surveys, here("output", "data", "df_surveys.rds"))
 
