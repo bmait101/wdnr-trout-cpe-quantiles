@@ -79,3 +79,9 @@ df_fish_raw <-chunks %>%
 length_deleted_rows
 length_warning_rows
 
+
+# Save data =====================================================================
+
+# saveRDS(df_surveys_raw, here("data", "raw_fmdb_surveys_20220330.rds"))
+# saveRDS(df_efforts_raw, here("data", "raw_fmdb_efforts_20210919.rds"))
+# saveRDS(df_fish_raw, here("data", "raw_fmdb_fish_20210919.rds"))
