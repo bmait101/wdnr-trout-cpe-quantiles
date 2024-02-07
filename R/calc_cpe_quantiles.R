@@ -218,6 +218,6 @@ print(wi_dft_tbl)
 
 # write to file
 wi_dft_tbl %>%
-  write_csv(here("output","2feb24_trout_cpe_quantiles.csv"))
+  write_csv(here("output","2feb24_trout_cpe_quants_WI-Dft.csv"))
 
 
